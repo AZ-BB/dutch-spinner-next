@@ -1,0 +1,15 @@
+{
+  "participants": [
+    {
+      "email": "test@mail.com",
+      "voornaam": "test",
+      "achternaam": "teat",
+      "newsletter": true,
+      "registeredAt": "2025-11-27T12:09:57.653Z",
+      "hasSpun": true,
+      "prize": "€250 shoptegoed",
+      "voucherCode": "SHOP250-2024-A1B2",
+      "spinDate": "2025-11-27T12:09:59.847Z"
+    }
+  ]
+}
