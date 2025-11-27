@@ -10,6 +10,17 @@
       "prize": "€250 shoptegoed",
       "voucherCode": "SHOP250-2024-A1B2",
       "spinDate": "2025-11-27T12:09:59.847Z"
+    },
+    {
+      "email": "tet@mail.com",
+      "voornaam": "test",
+      "achternaam": "test",
+      "newsletter": true,
+      "registeredAt": "2025-11-27T12:14:43.419Z",
+      "hasSpun": true,
+      "prize": "15% korting",
+      "voucherCode": "KORTING15-2024-A1B2",
+      "spinDate": "2025-11-27T12:14:50.325Z"
     }
   ]
 }

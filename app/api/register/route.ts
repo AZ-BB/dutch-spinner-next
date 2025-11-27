@@ -1,18 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import fs from 'fs'
-import path from 'path'
-import type { ParticipantsData, Participant } from '@/types'
-
-const PARTICIPANTS_PATH = path.join(process.cwd(), 'data', 'participants.json')
-
-function readJSON<T>(filePath: string): T {
-  const data = fs.readFileSync(filePath, 'utf8')
-  return JSON.parse(data) as T
-}
-
-function writeJSON<T>(filePath: string, data: T): void {
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2))
-}
+import { createServerClient } from '@/lib/supabase'
 
 interface RegisterRequestBody {
   email: string
@@ -23,7 +10,7 @@ interface RegisterRequestBody {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const { email, voornaam, achternaam, newsletter }: RegisterRequestBody = await request.json()
+    const { email, voornaam, achternaam }: RegisterRequestBody = await request.json()
 
     if (!email || !voornaam || !achternaam) {
       return NextResponse.json(
@@ -41,34 +28,55 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       )
     }
 
-    const participants = readJSON<ParticipantsData>(PARTICIPANTS_PATH)
+    const supabase = createServerClient()
 
     // Check if email already exists
-    const existingParticipant = participants.participants.find(
-      (p: Participant) => p.email.toLowerCase() === email.toLowerCase()
-    )
+    const { data: existingUser, error: checkError } = await supabase
+      .from('users')
+      .select('id, coupon_id')
+      .eq('email', email.toLowerCase())
+      .single()
 
-    if (existingParticipant) {
+    if (checkError && checkError.code !== 'PGRST116') {
+      // PGRST116 means no rows found, which is expected
+      console.error('Error checking existing user:', checkError)
       return NextResponse.json(
-        { error: 'Dit e-mailadres heeft al meegedaan aan het rad.' },
-        { status: 400 }
+        { error: 'Er is een serverfout opgetreden.' },
+        { status: 500 }
       )
     }
 
-    // Add new participant
-    const newParticipant: Participant = {
-      email: email.toLowerCase(),
-      voornaam,
-      achternaam,
-      newsletter: !!newsletter,
-      registeredAt: new Date().toISOString(),
-      hasSpun: false,
-      prize: null,
-      voucherCode: null
+    if (existingUser) {
+      // User already exists - check if they've already spun
+      if (existingUser.coupon_id) {
+        return NextResponse.json(
+          { error: 'Dit e-mailadres heeft al meegedaan aan het rad.' },
+          { status: 400 }
+        )
+      }
+      // User exists but hasn't spun yet - allow them to proceed
+      return NextResponse.json({
+        success: true,
+        message: 'Welkom terug! Je kunt nu aan het rad draaien.'
+      })
     }
 
-    participants.participants.push(newParticipant)
-    writeJSON(PARTICIPANTS_PATH, participants)
+    // Create new user
+    const { error: insertError } = await supabase
+      .from('users')
+      .insert({
+        email: email.toLowerCase(),
+        first_name: voornaam,
+        last_name: achternaam,
+      })
+
+    if (insertError) {
+      console.error('Error inserting user:', insertError)
+      return NextResponse.json(
+        { error: 'Er is een fout opgetreden bij het registreren.' },
+        { status: 500 }
+      )
+    }
 
     return NextResponse.json({
       success: true,
@@ -82,4 +90,3 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     )
   }
 }
-

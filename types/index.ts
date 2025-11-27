@@ -1,27 +1,30 @@
-export interface Participant {
+// Re-export enums
+export * from './enums'
+
+// Database types
+export interface DBCoupon {
+  id: number
+  code: string
+  name: string
+  type: string // coupon_type enum
+  used: boolean
+  used_at: string | null
+  created_at: string
+}
+
+export interface DBUser {
+  id: number
   email: string
-  voornaam: string
-  achternaam: string
-  newsletter: boolean
-  registeredAt: string
-  hasSpun: boolean
-  prize: string | null
-  voucherCode: string | null
-  spinDate?: string
+  first_name: string
+  last_name: string
+  coupon_id: number | null
+  created_at: string
 }
 
-export interface ParticipantsData {
-  participants: Participant[]
-}
-
-export interface VouchersData {
-  [prizeName: string]: {
-    codes: string[]
-  }
-}
-
+// Frontend types
 export interface Prize {
   name: string
+  type: string
   color: string
   icon: string
 }
@@ -30,6 +33,7 @@ export interface SpinResult {
   success: boolean
   prizeIndex: number
   prize: string
+  prizeType: string
   voucherCode: string
   message: string
 }
@@ -48,4 +52,3 @@ export interface ConfettiPiece {
   duration: number
   color: string
 }
-

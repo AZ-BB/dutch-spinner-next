@@ -1,0 +1,1 @@
+ALTER TABLE coupons ADD COLUMN name TEXT NOT NULL;

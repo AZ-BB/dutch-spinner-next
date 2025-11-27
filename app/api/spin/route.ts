@@ -1,27 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import fs from 'fs'
-import path from 'path'
-import type { ParticipantsData, VouchersData, Participant } from '@/types'
-
-const VOUCHERS_PATH = path.join(process.cwd(), 'data', 'vouchers.json')
-const PARTICIPANTS_PATH = path.join(process.cwd(), 'data', 'participants.json')
-
-const PRIZES: string[] = [
-  'HEMA regenponcho',
-  '€50 shoptegoed',
-  '€250 shoptegoed',
-  '15% korting',
-  '€100 shoptegoed'
-]
-
-function readJSON<T>(filePath: string): T {
-  const data = fs.readFileSync(filePath, 'utf8')
-  return JSON.parse(data) as T
-}
-
-function writeJSON<T>(filePath: string, data: T): void {
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2))
-}
+import { createServerClient } from '@/lib/supabase'
+import { CouponTypeDisplayNames, CouponType } from '@/types/enums'
 
 interface SpinRequestBody {
   email: string
@@ -38,66 +17,128 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       )
     }
 
-    const participants = readJSON<ParticipantsData>(PARTICIPANTS_PATH)
-    const vouchers = readJSON<VouchersData>(VOUCHERS_PATH)
+    const supabase = createServerClient()
 
-    // Find participant
-    const participantIndex = participants.participants.findIndex(
-      (p: Participant) => p.email.toLowerCase() === email.toLowerCase()
-    )
+    // Find user
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('id, coupon_id')
+      .eq('email', email.toLowerCase())
+      .single()
 
-    if (participantIndex === -1) {
+    if (userError || !user) {
       return NextResponse.json(
         { error: 'Je moet je eerst registreren voordat je kunt draaien.' },
         { status: 400 }
       )
     }
 
-    const participant = participants.participants[participantIndex]
+    // Check if user has already spun
+    if (user.coupon_id) {
+      // Get the coupon they already won
+      const { data: existingCoupon } = await supabase
+        .from('coupons')
+        .select('name, code, type')
+        .eq('id', user.coupon_id)
+        .single()
 
-    if (participant.hasSpun) {
       return NextResponse.json(
         {
           error: 'Je hebt al aan het rad gedraaid.',
-          prize: participant.prize,
-          voucherCode: participant.voucherCode
+          prize: existingCoupon?.name,
+          prizeType: existingCoupon?.type,
+          voucherCode: existingCoupon?.code
         },
         { status: 400 }
       )
     }
 
-    // Select random prize (equal probability)
-    const prizeIndex = Math.floor(Math.random() * PRIZES.length)
-    const prize = PRIZES[prizeIndex]
+    // Get all available coupons grouped by type
+    const { data: availableCoupons, error: couponsError } = await supabase
+      .from('coupons')
+      .select('id, name, code, type')
+      .eq('used', false)
 
-    // Get voucher code for this prize
-    const prizeVouchers = vouchers[prize]
-    if (!prizeVouchers || prizeVouchers.codes.length === 0) {
+    if (couponsError || !availableCoupons || availableCoupons.length === 0) {
       return NextResponse.json(
-        { error: 'Er zijn geen vouchercodes meer beschikbaar voor deze prijs.' },
+        { error: 'Er zijn geen prijzen meer beschikbaar.' },
         { status: 500 }
       )
     }
 
-    // Take the first available code
-    const voucherCode = prizeVouchers.codes.shift()!
+    // Group coupons by type
+    const couponsByType: Record<string, typeof availableCoupons> = {}
+    availableCoupons.forEach(coupon => {
+      if (!couponsByType[coupon.type]) {
+        couponsByType[coupon.type] = []
+      }
+      couponsByType[coupon.type].push(coupon)
+    })
 
-    // Update participant record
-    participants.participants[participantIndex].hasSpun = true
-    participants.participants[participantIndex].prize = prize
-    participants.participants[participantIndex].voucherCode = voucherCode
-    participants.participants[participantIndex].spinDate = new Date().toISOString()
+    // Get unique prize types that have available coupons
+    const availablePrizeTypes = Object.keys(couponsByType)
+    
+    if (availablePrizeTypes.length === 0) {
+      return NextResponse.json(
+        { error: 'Er zijn geen prijzen meer beschikbaar.' },
+        { status: 500 }
+      )
+    }
 
-    // Save updated data
-    writeJSON(PARTICIPANTS_PATH, participants)
-    writeJSON(VOUCHERS_PATH, vouchers)
+    // Select random prize type
+    const prizeIndex = Math.floor(Math.random() * availablePrizeTypes.length)
+    const prizeType = availablePrizeTypes[prizeIndex]
+
+    // Get first available coupon for this prize type
+    const winningCoupon = couponsByType[prizeType][0]
+    
+    // Get display name for the prize
+    const prizeName = CouponTypeDisplayNames[prizeType as CouponType] || winningCoupon.name
+
+    // Mark coupon as used
+    const { error: updateCouponError } = await supabase
+      .from('coupons')
+      .update({
+        used: true,
+        used_at: new Date().toISOString()
+      })
+      .eq('id', winningCoupon.id)
+
+    if (updateCouponError) {
+      console.error('Error updating coupon:', updateCouponError)
+      return NextResponse.json(
+        { error: 'Er is een fout opgetreden bij het claimen van je prijs.' },
+        { status: 500 }
+      )
+    }
+
+    // Update user with coupon_id
+    const { error: updateUserError } = await supabase
+      .from('users')
+      .update({ coupon_id: winningCoupon.id })
+      .eq('id', user.id)
+
+    if (updateUserError) {
+      console.error('Error updating user:', updateUserError)
+      // Try to rollback the coupon update
+      await supabase
+        .from('coupons')
+        .update({ used: false, used_at: null })
+        .eq('id', winningCoupon.id)
+      
+      return NextResponse.json(
+        { error: 'Er is een fout opgetreden bij het opslaan van je prijs.' },
+        { status: 500 }
+      )
+    }
 
     return NextResponse.json({
       success: true,
       prizeIndex,
-      prize,
-      voucherCode,
-      message: `Gefeliciteerd! Je hebt ${prize} gewonnen!`
+      prize: prizeName,
+      prizeType: prizeType,
+      voucherCode: winningCoupon.code,
+      message: `Gefeliciteerd! Je hebt ${prizeName} gewonnen!`
     })
   } catch (error) {
     console.error('Spin error:', error)
@@ -107,4 +148,3 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     )
   }
 }
-
