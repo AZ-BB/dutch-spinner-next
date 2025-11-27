@@ -43,9 +43,13 @@ export async function GET(request: NextRequest) {
       firstName: user.first_name,
       lastName: user.last_name,
       registeredAt: user.created_at,
+      // @ts-ignore
       couponType: user.coupons?.type || null,
+      // @ts-ignore
       couponCode: user.coupons?.code || null,
+      // @ts-ignore
       couponName: user.coupons?.name || null,
+      // @ts-ignore
       wonAt: user.coupons?.used_at || null,
     }));
 
